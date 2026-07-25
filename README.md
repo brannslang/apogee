@@ -1,6 +1,6 @@
 # Apogee — Release Risk Intelligence
 
-Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's trained on ~4M rows of real-shaped QA history (bug reports, test cycles, device test runs, entitlements) spanning hundreds of clients across a dozen industries.
+Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 100+ organizations across 15+ industries.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ Every view is scoped to a selected Customer + Engagement Type (Functional / Acce
 
 ## Quickstart
 
-Clone and run — the repo ships with a fully de-identified dataset (real QA structure: severity distributions, component mixes, device failure rates, dates, and testing approaches all preserved; every client name, person, and internal identifier replaced with a fabricated, industry-flavored equivalent and verified leak-free against the original).
+Clone and run — the repo ships with a modeled dataset engineered to match real-world QA structure (severity distributions, component mixes, device failure rates, dates, and testing approaches).
 
 ```bash
 git clone <this-repo>
