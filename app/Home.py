@@ -20,40 +20,40 @@ st.divider()
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
+    st.subheader("Industry Benchmark")
+    st.markdown(
+        "Compare High/Critical bug rates across industries, with client rosters "
+        "for consultative, cross-customer context."
+    )
+    if st.button("Open Industry Benchmark →", use_container_width=True):
+        st.switch_page("pages/1_Industry_Benchmark.py")
+
+with col2:
     st.subheader("Risk Dashboard")
     st.markdown(
         "Ranked view of historically risky components, platforms, and environments. "
         "No inputs required — always-on signal from historical data."
     )
     if st.button("Open Risk Dashboard →", use_container_width=True):
-        st.switch_page("pages/1_Risk_Dashboard.py")
+        st.switch_page("pages/2_Risk_Dashboard.py")
 
-with col2:
+with col3:
     st.subheader("Release Predictor")
     st.markdown(
         "Tell us about your upcoming release and get a predicted High/Critical bug "
         "probability, plus a breakdown of where bugs are most likely to appear."
     )
     if st.button("Open Release Predictor →", use_container_width=True):
-        st.switch_page("pages/2_Release_Predictor.py")
+        st.switch_page("pages/3_Release_Predictor.py")
 
-with col3:
+with col4:
     st.subheader("Monthly Digest")
     st.markdown(
         "Historical pattern analysis — trend lines, top recurring risk factors, "
-        "and period-over-period changes. Refreshed monthly."
+        "and period-over-period changes across components and platforms. Refreshed monthly."
     )
     if st.button("Open Monthly Digest →", use_container_width=True):
-        st.switch_page("pages/3_Monthly_Digest.py")
-
-with col4:
-    st.subheader("Industry Benchmark")
-    st.markdown(
-        "Compare High/Critical bug rates across industries, with a client roster "
-        "for each — consultative, cross-customer context in one view."
-    )
-    if st.button("Open Industry Benchmark →", use_container_width=True):
-        st.switch_page("pages/6_Industry_Benchmark.py")
+        st.switch_page("pages/4_Monthly_Digest.py")
 
 st.divider()
 
@@ -62,7 +62,7 @@ st.markdown(
     "Upload refreshed or new client Excel files and retrain the model — no command line needed."
 )
 if st.button("Open Data Upload →", use_container_width=True):
-    st.switch_page("pages/5_Data_Upload.py")
+    st.switch_page("pages/6_Data_Upload.py")
 
 st.divider()
 
