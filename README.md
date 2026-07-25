@@ -42,20 +42,35 @@ Every view is scoped to a selected Customer + Engagement Type (Functional / Acce
 
 ## Quickstart
 
-Clone and run — the repo ships with a modeled dataset engineered to match real-world QA structure (severity distributions, component mixes, device failure rates, dates, and testing approaches).
+Clone and run — the repo ships with a modeled dataset engineered to match real-world QA structure (severity distributions, component mixes, device failure rates, dates, and testing approaches), plus pre-trained model artifacts, so no training step is required to launch the app.
+
+**Prerequisites:**
+- **Python 3.11+** (required by the pinned `scikit-learn` version below).
+- **[Git LFS](https://git-lfs.com/).** The data and model files are large and stored via Git LFS. Without it installed *before* cloning, you'll silently get small text pointer files instead of the actual data/artifacts, and the app will fail confusingly. One-time setup:
+
+```bash
+git lfs install       # once per machine (brew install git-lfs first if needed on macOS)
+```
+
+Then:
 
 ```bash
 git clone <this-repo>
 cd apogee
 pip install -r requirements.txt
 
-python model/train.py       # trains on data/, writes model/artifacts/ (few minutes)
-streamlit run app/Home.py   # http://localhost:8501
+streamlit run app/Home.py   # http://localhost:8501 — uses the shipped model/artifacts/, no training needed
 ```
 
-`sentence-transformers` is optional and left out of `requirements.txt` (heavy, unnecessary for Streamlit Cloud deployment). If it's installed locally, `train.py` picks it up automatically for semantic text embeddings; otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on.
+If a clone ever comes back with data files a few hundred bytes each instead of tens/hundreds of MB, Git LFS wasn't installed before the clone — run `git lfs install && git lfs pull` from inside the repo to fetch the real content.
 
-To retrain against your own data instead: replace the files in `data/` with same-schema exports (see `EXPECTED_DATA_FILES` in `config.py`), or upload them from the in-app **Data Upload** page. Uploading a subset is fine — only the matching files get replaced.
+To retrain instead of using the shipped artifacts — e.g. against your own data, or to pick up `sentence-transformers` embeddings if you have that package installed locally (optional, left out of `requirements.txt` since it's heavy and unnecessary for Streamlit Cloud deployment; if present, `train.py` picks it up automatically for a heavier text-embedding layer, otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on):
+
+```bash
+python model/train.py       # retrains on data/, overwrites model/artifacts/ (can take 30-45+ minutes at full scale)
+```
+
+Replace the files in `data/` with same-schema exports first (see `EXPECTED_DATA_FILES` in `config.py`) if retraining against different data, or upload them from the in-app **Data Upload** page — uploading a subset is fine, only the matching files get replaced.
 
 ## Project structure
 
