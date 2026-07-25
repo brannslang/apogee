@@ -79,251 +79,10 @@ m1, m2 = st.columns(2)
 m1.metric("H/C Baseline Rate", f"{baseline:.1%}")
 m2.metric("Total Bugs", f"{total:,}")
 
-st.divider()
-
-# --- Quality & Process Metrics ---
-st.subheader("Quality & Process Metrics")
-st.caption(
-    "Signals beyond the H/C rate — requirements clarity, QA verification loop closure, "
-    "and structured test coverage."
-)
-
-
-def _fmt_pct(v):
-    return f"{v:.1%}" if v is not None else "n/a"
-
-
-q1, q2 = st.columns(2)
-q1.metric(
-    "Fix verification rate",
-    _fmt_pct(tables.get("fix_verification_requested_rate")),
-    help="Share of bugs where fix verification was ever requested (i.e. didn't sit at 'Not Requested'). "
-         "Low = fixes shipping without a closed QA loop.",
-)
-q2.metric(
-    "Rejection rate",
-    _fmt_pct(tables.get("rejection_rate")),
-    help="Share of all submitted bugs that were Rejected or Discarded.",
-)
-
-q3, q4 = st.columns(2)
-q3.metric(
-    "Works-as-designed share",
-    _fmt_pct(tables.get("wad_share")),
-    help="Of rejected bugs, the share rejected as 'Works as designed'. High = requirements/acceptance-"
-         "criteria misalignment rather than a QA quality problem.",
-)
-q4.metric(
-    "Coverage gap score",
-    f"{tables['coverage_gap_score']:.1f}" if tables.get("coverage_gap_score") is not None else "n/a",
-    help="Exploratory bugs ÷ (Structured bugs + 1). Higher = less structured regression coverage.",
-)
-st.caption(
-    "Coverage Gap Score is derived from Bug Source Type (Structured vs. Exploratory), which is not "
-    "consistently logged across all customers and testers — treat this score as directional, not precise."
-)
-
-st.divider()
-
-# --- Client Roster (info-only) ---
-st.subheader("Clients in This Industry")
-st.caption(
-    "Informational only — not a filter. Ranked by bug volume, a proxy for engagement scale "
-    "(Apogee doesn't track company size or revenue directly); distinct test cycles shown "
-    "as a secondary signal."
-)
-roster = get_customer_roster_by_industry(industry)
-if roster:
-    roster_df = pd.DataFrame(roster)
-    roster_df.insert(0, "Rank", range(1, len(roster_df) + 1))
-    roster_df = roster_df.rename(columns={
-        "bug_volume":  "Bug Volume",
-        "test_cycles": "Test Cycles",
-        "Customer":    "Customer",
-    })
-    st.dataframe(roster_df, use_container_width=True, hide_index=True)
-else:
-    st.info("No client roster available for this industry.")
-
-st.divider()
-
-
-# --- Breakdown charts ---
-def risk_bar(df: pd.DataFrame, dim_col: str, title: str, top_n: int = 20):
-    if df.empty:
-        st.info(f"No data available for {title}.")
-        return
-    plot_df = df.head(top_n).copy()
-    plot_df["color"] = plot_df["hc_rate"].apply(
-        lambda r: "#d62728" if r > 0.50 else "#ff7f0e" if r > 0.35 else "#1f77b4"
-    )
-    plot_df["label"] = (
-        plot_df["hc_rate"].map("{:.0%}".format)
-        + " (n="
-        + plot_df["n_bugs"].astype(str)
-        + ")"
-    )
-    fig = go.Figure(
-        go.Bar(
-            x=plot_df["hc_rate"],
-            y=plot_df[dim_col].astype(str),
-            orientation="h",
-            marker_color=plot_df["color"],
-            text=plot_df["label"],
-            textposition="outside",
-            textfont=dict(color="#444444"),
-            hovertemplate=(
-                "<b>%{y}</b><br>"
-                "H/C Rate: %{x:.1%}<br>"
-                "<extra></extra>"
-            ),
-        )
-    )
-    fig.add_vline(
-        x=baseline,
-        line_dash="dash",
-        line_color="black",
-        annotation_text=f"Baseline {baseline:.1%}",
-        annotation_position="top right",
-    )
-    fig.update_layout(
-        title=title,
-        xaxis_title="High/Critical Rate",
-        yaxis=dict(autorange="reversed"),
-        height=max(350, len(plot_df) * 28 + 80),
-        margin=dict(l=10, r=120, t=50, b=40),
-        plot_bgcolor="white",
-        xaxis=dict(tickformat=".0%", range=[0, min(1.0, plot_df["hc_rate"].max() * 1.35)]),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-st.subheader("Breakdowns")
-st.caption(
-    "App Component and Parent App Component are customer-specific vocabulary (often not even "
-    "captured) and don't roll up meaningfully across an industry, so this tab uses dimensions "
-    "that are genuinely comparable across customers instead."
-)
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "By Bug Type",
-    "By Sub-Industry",
-    "By Platform",
-    "By Bug Source Type",
-])
-
-with tab1:
-    risk_bar(
-        tables.get("Bug Type", pd.DataFrame()),
-        "Bug Type",
-        "High/Critical Rate by Bug Type",
-    )
-
-with tab2:
-    st.caption(
-        f"CAPDB Sub-Industry is a finer taxonomy beneath {industry}. Many industries map to a "
-        "single sub-industry — a one-row chart there just means the two are equivalent for this industry."
-    )
-    risk_bar(
-        tables.get("CAPDB Sub-Industry", pd.DataFrame()),
-        "CAPDB Sub-Industry",
-        f"High/Critical Rate by Sub-Industry within {industry}",
-    )
-
-with tab3:
-    risk_bar(
-        tables.get("Platform Group", pd.DataFrame()),
-        "Platform Group",
-        "High/Critical Rate by Platform (Android / iOS / Web / OTT / Other)",
-    )
-
-with tab4:
-    st.caption(
-        "⚠️ Bug Source Type (Structured vs. Exploratory) is not consistently logged across all "
-        "customers and testers — treat this breakdown as directional, not precise."
-    )
-    risk_bar(
-        tables.get("Bug Source Type", pd.DataFrame()),
-        "Bug Source Type",
-        "High/Critical Rate by Bug Source Type",
-    )
-
-st.divider()
-
-# --- Monthly trend for this industry, vs. peer industries ---
-monthly = tables.get("monthly_trend")
+# Shared by both the Trend Leaderboard and H/C Rate Over Time sections below.
 all_monthly = get_industry_monthly_series(engagement_type)
 
-if monthly is not None and not monthly.empty:
-    st.subheader("H/C Rate Over Time")
-
-    peer_band = pd.DataFrame()
-    if not all_monthly.empty:
-        peers = all_monthly[all_monthly["Industry"] != industry]
-        if not peers.empty:
-            peer_band = (
-                peers.groupby("month")["hc_rate"]
-                .quantile([0.25, 0.5, 0.75])
-                .unstack()
-                .rename(columns={0.25: "p25", 0.5: "p50", 0.75: "p75"})
-                .reset_index()
-                .sort_values("month")
-            )
-
-    fig_trend = go.Figure()
-
-    if not peer_band.empty:
-        merged = monthly[["month"]].merge(peer_band, on="month", how="left")
-        fig_trend.add_trace(go.Scatter(
-            x=merged["month"], y=merged["p75"], mode="lines",
-            line=dict(width=0), hoverinfo="skip", showlegend=False,
-        ))
-        fig_trend.add_trace(go.Scatter(
-            x=merged["month"], y=merged["p25"], mode="lines",
-            line=dict(width=0), fill="tonexty", fillcolor="rgba(128,128,128,0.25)",
-            hoverinfo="skip", showlegend=False, name="Peer P25–P75 range",
-        ))
-        fig_trend.add_trace(go.Scatter(
-            x=merged["month"], y=merged["p50"], mode="lines",
-            line=dict(color="gray", width=1.5, dash="dot"),
-            name="Peer median", hovertemplate="Peer median: %{y:.1%}<extra></extra>",
-        ))
-
-    fig_trend.add_trace(
-        go.Scatter(
-            x=monthly["month"],
-            y=monthly["hc_rate"],
-            mode="lines+markers",
-            name=industry,
-            line=dict(color="#1f77b4", width=2),
-            marker=dict(size=6),
-            hovertemplate="Month: %{x}<br>H/C Rate: %{y:.1%}<extra></extra>",
-        )
-    )
-    fig_trend.add_hline(
-        y=baseline,
-        line_dash="dash",
-        line_color="black",
-        annotation_text=f"{industry} baseline {baseline:.1%}",
-        annotation_position="top left",
-    )
-    fig_trend.update_layout(
-        xaxis_title="Month",
-        yaxis_title="High/Critical Rate",
-        yaxis=dict(tickformat=".0%"),
-        height=380,
-        plot_bgcolor="white",
-        margin=dict(t=20, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.3),
-    )
-    st.plotly_chart(fig_trend, use_container_width=True)
-    if not peer_band.empty:
-        st.caption(
-            f"Shaded band = the middle 50% (P25–P75) of every other industry's H/C rate each month; "
-            f"dotted gray line = peer median. Shows whether {industry} is moving inside or outside the "
-            "normal range for its peers, not just up or down in isolation."
-        )
-    st.divider()
+st.divider()
 
 # --- Industry Trend Leaderboard ---
 rank_trend = get_industry_rank_trend(engagement_type)
@@ -455,6 +214,248 @@ if trendable:
         "6 months ago; ↑ red means it climbed toward riskier, ↓ green means it dropped toward safer."
     )
     st.divider()
+
+# --- Client Roster (info-only) ---
+st.subheader("Clients in This Industry")
+st.caption(
+    "Informational only — not a filter. Ranked by bug volume, a proxy for engagement scale "
+    "(Apogee doesn't track company size or revenue directly); distinct test cycles shown "
+    "as a secondary signal."
+)
+roster = get_customer_roster_by_industry(industry)
+if roster:
+    roster_df = pd.DataFrame(roster)
+    roster_df.insert(0, "Rank", range(1, len(roster_df) + 1))
+    roster_df = roster_df.rename(columns={
+        "bug_volume":  "Bug Volume",
+        "test_cycles": "Test Cycles",
+        "Customer":    "Customer",
+    })
+    st.dataframe(roster_df, use_container_width=True, hide_index=True)
+else:
+    st.info("No client roster available for this industry.")
+
+st.divider()
+
+# --- Monthly trend for this industry, vs. peer industries ---
+monthly = tables.get("monthly_trend")
+
+if monthly is not None and not monthly.empty:
+    st.subheader("H/C Rate Over Time")
+
+    peer_band = pd.DataFrame()
+    if not all_monthly.empty:
+        peers = all_monthly[all_monthly["Industry"] != industry]
+        if not peers.empty:
+            peer_band = (
+                peers.groupby("month")["hc_rate"]
+                .quantile([0.25, 0.5, 0.75])
+                .unstack()
+                .rename(columns={0.25: "p25", 0.5: "p50", 0.75: "p75"})
+                .reset_index()
+                .sort_values("month")
+            )
+
+    fig_trend = go.Figure()
+
+    if not peer_band.empty:
+        merged = monthly[["month"]].merge(peer_band, on="month", how="left")
+        fig_trend.add_trace(go.Scatter(
+            x=merged["month"], y=merged["p75"], mode="lines",
+            line=dict(width=0), hoverinfo="skip", showlegend=False,
+        ))
+        fig_trend.add_trace(go.Scatter(
+            x=merged["month"], y=merged["p25"], mode="lines",
+            line=dict(width=0), fill="tonexty", fillcolor="rgba(128,128,128,0.25)",
+            hoverinfo="skip", showlegend=False, name="Peer P25–P75 range",
+        ))
+        fig_trend.add_trace(go.Scatter(
+            x=merged["month"], y=merged["p50"], mode="lines",
+            line=dict(color="gray", width=1.5, dash="dot"),
+            name="Peer median", hovertemplate="Peer median: %{y:.1%}<extra></extra>",
+        ))
+
+    fig_trend.add_trace(
+        go.Scatter(
+            x=monthly["month"],
+            y=monthly["hc_rate"],
+            mode="lines+markers",
+            name=industry,
+            line=dict(color="#1f77b4", width=2),
+            marker=dict(size=6),
+            hovertemplate="Month: %{x}<br>H/C Rate: %{y:.1%}<extra></extra>",
+        )
+    )
+    fig_trend.add_hline(
+        y=baseline,
+        line_dash="dash",
+        line_color="black",
+        annotation_text=f"{industry} baseline {baseline:.1%}",
+        annotation_position="top left",
+    )
+    fig_trend.update_layout(
+        xaxis_title="Month",
+        yaxis_title="High/Critical Rate",
+        yaxis=dict(tickformat=".0%"),
+        height=380,
+        plot_bgcolor="white",
+        margin=dict(t=20, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.3),
+    )
+    st.plotly_chart(fig_trend, use_container_width=True)
+    if not peer_band.empty:
+        st.caption(
+            f"Shaded band = the middle 50% (P25–P75) of every other industry's H/C rate each month; "
+            f"dotted gray line = peer median. Shows whether {industry} is moving inside or outside the "
+            "normal range for its peers, not just up or down in isolation."
+        )
+    st.divider()
+
+# --- Breakdown charts ---
+def risk_bar(df: pd.DataFrame, dim_col: str, title: str, top_n: int = 20):
+    if df.empty:
+        st.info(f"No data available for {title}.")
+        return
+    plot_df = df.head(top_n).copy()
+    plot_df["color"] = plot_df["hc_rate"].apply(
+        lambda r: "#d62728" if r > 0.50 else "#ff7f0e" if r > 0.35 else "#1f77b4"
+    )
+    plot_df["label"] = (
+        plot_df["hc_rate"].map("{:.0%}".format)
+        + " (n="
+        + plot_df["n_bugs"].astype(str)
+        + ")"
+    )
+    fig = go.Figure(
+        go.Bar(
+            x=plot_df["hc_rate"],
+            y=plot_df[dim_col].astype(str),
+            orientation="h",
+            marker_color=plot_df["color"],
+            text=plot_df["label"],
+            textposition="outside",
+            textfont=dict(color="#444444"),
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "H/C Rate: %{x:.1%}<br>"
+                "<extra></extra>"
+            ),
+        )
+    )
+    fig.add_vline(
+        x=baseline,
+        line_dash="dash",
+        line_color="black",
+        annotation_text=f"Baseline {baseline:.1%}",
+        annotation_position="top right",
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title="High/Critical Rate",
+        yaxis=dict(autorange="reversed"),
+        height=max(350, len(plot_df) * 28 + 80),
+        margin=dict(l=10, r=120, t=50, b=40),
+        plot_bgcolor="white",
+        xaxis=dict(tickformat=".0%", range=[0, min(1.0, plot_df["hc_rate"].max() * 1.35)]),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+st.subheader("Breakdowns")
+st.caption(
+    "App Component and Parent App Component are customer-specific vocabulary (often not even "
+    "captured) and don't roll up meaningfully across an industry, so this tab uses dimensions "
+    "that are genuinely comparable across customers instead."
+)
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "By Bug Type",
+    "By Sub-Industry",
+    "By Platform",
+    "By Bug Source Type",
+])
+
+with tab1:
+    risk_bar(
+        tables.get("Bug Type", pd.DataFrame()),
+        "Bug Type",
+        "High/Critical Rate by Bug Type",
+    )
+
+with tab2:
+    st.caption(
+        f"CAPDB Sub-Industry is a finer taxonomy beneath {industry}. Many industries map to a "
+        "single sub-industry — a one-row chart there just means the two are equivalent for this industry."
+    )
+    risk_bar(
+        tables.get("CAPDB Sub-Industry", pd.DataFrame()),
+        "CAPDB Sub-Industry",
+        f"High/Critical Rate by Sub-Industry within {industry}",
+    )
+
+with tab3:
+    risk_bar(
+        tables.get("Platform Group", pd.DataFrame()),
+        "Platform Group",
+        "High/Critical Rate by Platform (Android / iOS / Web / OTT / Other)",
+    )
+
+with tab4:
+    st.caption(
+        "⚠️ Bug Source Type (Structured vs. Exploratory) is not consistently logged across all "
+        "customers and testers — treat this breakdown as directional, not precise."
+    )
+    risk_bar(
+        tables.get("Bug Source Type", pd.DataFrame()),
+        "Bug Source Type",
+        "High/Critical Rate by Bug Source Type",
+    )
+
+st.divider()
+
+# --- Quality & Process Metrics ---
+st.subheader("Quality & Process Metrics")
+st.caption(
+    "Signals beyond the H/C rate — requirements clarity, QA verification loop closure, "
+    "and structured test coverage."
+)
+
+
+def _fmt_pct(v):
+    return f"{v:.1%}" if v is not None else "n/a"
+
+
+q1, q2 = st.columns(2)
+q1.metric(
+    "Fix verification rate",
+    _fmt_pct(tables.get("fix_verification_requested_rate")),
+    help="Share of bugs where fix verification was ever requested (i.e. didn't sit at 'Not Requested'). "
+         "Low = fixes shipping without a closed QA loop.",
+)
+q2.metric(
+    "Rejection rate",
+    _fmt_pct(tables.get("rejection_rate")),
+    help="Share of all submitted bugs that were Rejected or Discarded.",
+)
+
+q3, q4 = st.columns(2)
+q3.metric(
+    "Works-as-designed share",
+    _fmt_pct(tables.get("wad_share")),
+    help="Of rejected bugs, the share rejected as 'Works as designed'. High = requirements/acceptance-"
+         "criteria misalignment rather than a QA quality problem.",
+)
+q4.metric(
+    "Coverage gap score",
+    f"{tables['coverage_gap_score']:.1f}" if tables.get("coverage_gap_score") is not None else "n/a",
+    help="Exploratory bugs ÷ (Structured bugs + 1). Higher = less structured regression coverage.",
+)
+st.caption(
+    "Coverage Gap Score is derived from Bug Source Type (Structured vs. Exploratory), which is not "
+    "consistently logged across all customers and testers — treat this score as directional, not precise."
+)
+
+st.divider()
 
 # --- Cross-industry comparison ---
 st.subheader("All Industries at a Glance")
