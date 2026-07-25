@@ -1,77 +1,75 @@
 # Apogee — Release Risk Intelligence
 
-Predictive ML tool that helps engineering teams assess bug risk before pushing a release candidate or site to production. Trained on the full multi-customer bug history, scoped per customer and per engagement type (Functional / Accessibility / Security), with a dedicated cross-customer industry benchmarking view.
+Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's trained on ~4M rows of real-shaped QA history (bug reports, test cycles, device test runs, entitlements) spanning hundreds of clients across a dozen industries.
 
-## What it does
+## Architecture
 
-| View | Description |
+A binary RandomForest classifier (`is_high_crit`: Critical/High vs. Medium/Low severity) trained on four feature streams:
+
+- **Structural** — App Component, Platform, Development Stage, Testing Approach, Bug Source Type, Industry, plus numeric fields like bug rate and test-cycle duration.
+- **Text signal** — seven keyword-flag categories (crash, security, performance, access, …) matched against bug subject/result text, backed by TF-IDF/SVD topics, with optional sentence-transformer embeddings as a heavier third layer when installed.
+- **Latent risk archetypes** — NMF factorization over entity co-occurrence (component × platform × dev-stage × testing-approach × source-type × customer), surfacing risk patterns no single categorical field captures alone.
+- **Network structure** — a property graph over components, platforms, and customers, contributing PageRank, degree centrality, and clustering coefficient as features. A component that's structurally central to many high-risk platforms carries more weight than its raw bug count alone would suggest.
+
+Six Streamlit views sit on top of the trained artifacts:
+
+| View | What it shows |
 |------|-------------|
-| **Risk Dashboard** | Ranked H/C rate by component, platform, environment, and testing approach for the selected customer + engagement type. Also surfaces model-wide feature importances and a Risk Network graph of structurally connected high-risk entities. |
-| **Release Predictor** | Form-driven prediction: describe an upcoming release, get an H/C bug probability scored against the customer's own baseline, a component-risk breakdown, and language-based risk signals pulled from historical bug text. |
-| **Monthly Digest** | Month-over-month H/C rate trend, bug-language keyword trends over time, and all-time top risk areas — scoped to the selected customer + engagement type. |
-| **Risk Map** | QA Predictive Radar — a device-level bubble chart clustering (Customer, Device, Engagement Type) combinations into Critical Hotspot / Nuisance Zone / Stable Yielder based on historical failure rate and bug severity. |
-| **Data Upload** | Upload refreshed or new client Excel exports and retrain in one step, no command line needed. Files are matched by name; upload all 8 or just the ones that changed. |
-| **Industry Benchmark** | Cross-customer comparison by industry, computed over the full dataset instead of one customer. Breaks down by dimensions that are actually comparable across customers (Bug Type, CAPDB Sub-Industry, Platform Group, Bug Source Type) rather than customer-specific component names. Adds quality/process metrics beyond H/C rate (fix-verification closure rate, rejection rate, works-as-designed share, coverage gap score), a peer-percentile trend band, and a trend-slope leaderboard of degrading/improving industries with confidence-weighted sparklines and rank-change badges. Includes an info-only client roster per industry, ranked by bug volume. |
+| **Risk Dashboard** | Ranked H/C rate by component, platform, environment, and testing approach; model-wide feature importances; a risk network graph of structurally connected high-risk entities. |
+| **Release Predictor** | Form-driven prediction — describe an upcoming release, get an H/C probability scored against the customer's own baseline, a component-risk breakdown, and language-based risk signals from historical bug text. |
+| **Monthly Digest** | Month-over-month H/C rate trend, bug-language keyword trends, all-time top risk areas. |
+| **Risk Map** | Device-level bubble chart (see Design decisions below) sorting (customer, device, engagement-type) combinations into four investment-priority clusters. |
+| **Industry Benchmark** | Cross-customer comparison by industry — fix-verification closure rate, rejection rate, works-as-designed share, coverage gap score, peer-percentile trend bands, and a trend-slope leaderboard of degrading/improving industries. |
+| **Data Upload** | Upload refreshed Excel exports and retrain in one step, no CLI needed. |
 
-## Then vs. now
+Every view is scoped to a selected Customer + Engagement Type (Functional / Accessibility / Security are run by different teams and tracked separately; Usability engagements are excluded — they produce interviews and surveys, not bugs).
 
-The app launched two months ago as a single-customer risk classifier with three views (Risk Dashboard, Release Predictor, Monthly Digest) and a plain categorical/numeric RandomForest. Since then:
+## Screenshots
 
-- **Multi-customer, multi-engagement-type architecture.** Every view is now scoped to a selected Customer and Engagement Type (Functional / Accessibility / Security are run by different teams and tracked separately); Usability engagements are excluded entirely since they produce interviews/surveys, not bugs.
-- **Multi-modal model.** The classifier now trains on three additional feature streams beyond the original categorical/numeric fields: bug-text signal (keyword flags, TF-IDF/SVD topics, and optional sentence-transformer embeddings), NMF latent risk archetypes from entity co-occurrence, and property-graph network metrics (PageRank, degree centrality, clustering) over components/platforms/customers.
-- **Two new views.** Risk Map (device-level failure/severity clustering) and Data Upload (in-app retraining, no CLI needed) didn't exist at launch.
-- **Industry Benchmark.** An entirely new cross-customer lens — the original app could only ever look at one customer at a time. It now benchmarks whole industries against each other on dimensions and metrics that don't make sense at the single-customer level.
-- **Bigger, broader dataset.** The training data has grown from the initial client set to a large multi-client export spanning many industries, with several customer data drops appended and retrained along the way (e.g. a major media & entertainment client).
-- **Smarter filtering.** Release Predictor's dropdown options and baselines are now scoped to the selected customer + engagement type instead of offering every value from every customer; the classifier silently backfills a customer's known Industry as a feature without requiring a new form field.
+*(captured from a local `streamlit run` — see Quickstart)*
 
-## Setup
+![Release Predictor](docs/screenshots/release-predictor.png)
+![Risk Map](docs/screenshots/risk-map.png)
+![Industry Benchmark](docs/screenshots/industry-benchmark.png)
+
+## Design decisions
+
+**Device-anchored prediction, not just customer-level.** Risk Map deliberately aggregates at (Customer, Device, Engagement Type), not just Customer. Fragmentation — a specific OS version, a specific device model — is often the actual root cause of QA risk, and that signal disappears if you only ever roll up to the customer or platform level. Anchoring at the device tells a team *which physical devices* are driving their failure rate, not just that their app has "device issues" in the abstract.
+
+**Severity weighting over raw bug counts.** A device with twenty low-severity cosmetic bugs and a device with two crashes are not equally risky, but a naive bug-count ranking treats them the same. Risk Map instead computes a `Severity_Index` (Critical=4, High=3, Medium=2, Low=1, summed) and a `Predictive_Risk_Score` (`failure_rate × 50 + severity_index × 10`), so ranking reflects actual risk exposure rather than ticket volume. The same instinct — severity, not count, is the signal — is why the core classifier's target is a severity-tier flag (`is_high_crit`) rather than a raw bug-count regression.
+
+**Four optimization clusters, not a single risk score.** Collapsing everything to one number loses the distinction between "worth fixing" and "worth ignoring." Risk Map instead buckets every device combination into one of four fixed-threshold clusters — **Critical Hotspot** (high failure rate, high severity — fix now), **Nuisance Zone** (high failure rate, low severity — probably a flaky test or a cosmetic issue), **Low ROI** (zero bugs, zero failures — deprioritize further testing here), **Stable Yielder** (everything else, the baseline). The clusters are a resource-allocation tool: they answer "where should QA effort actually go," which a single blended score can't.
+
+## Quickstart
+
+Clone and run — the repo ships with a fully de-identified dataset (real QA structure: severity distributions, component mixes, device failure rates, dates, and testing approaches all preserved; every client name, person, and internal identifier replaced with a fabricated, industry-flavored equivalent and verified leak-free against the original).
 
 ```bash
-# 1. Install dependencies
+git clone <this-repo>
+cd apogee
 pip install -r requirements.txt
 
-# 2. Train the model (run once, then monthly to refresh)
-python model/train.py
-
-# 3. Launch the app
-streamlit run app/Home.py
+python model/train.py       # trains on data/, writes model/artifacts/ (few minutes)
+streamlit run app/Home.py   # http://localhost:8501
 ```
 
-`sentence-transformers` is optional and not in `requirements.txt` (it's heavy and unnecessary for Streamlit Cloud deployment) — if it's installed locally, `train.py` uses it for semantic text embeddings; if not, it skips that layer and falls back to keyword flags + TF-IDF/SVD only.
+`sentence-transformers` is optional and left out of `requirements.txt` (heavy, unnecessary for Streamlit Cloud deployment). If it's installed locally, `train.py` picks it up automatically for semantic text embeddings; otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on.
+
+To retrain against your own data instead: replace the files in `data/` with same-schema exports (see `EXPECTED_DATA_FILES` in `config.py`), or upload them from the in-app **Data Upload** page. Uploading a subset is fine — only the matching files get replaced.
 
 ## Project structure
 
 ```
 apogee/
-├── data/               # Excel training data (bug details, test cycles, device runs, test cases, entitlements)
+├── data/               # Training data (bug details, test cycles, device runs, test cases, entitlements)
 ├── model/
-│   ├── train.py        # Training pipeline — multi-modal feature build + classifier + risk tables
-│   ├── predict.py      # Inference module used by the app
-│   └── artifacts/      # Saved model files (generated by train.py)
+│   ├── train.py         # Training pipeline — multi-modal feature build + classifier + risk tables
+│   ├── predict.py        # Inference module used by the app
+│   └── artifacts/        # Saved model files (generated by train.py)
 ├── app/
-│   ├── Home.py         # Streamlit entry point
-│   ├── utils.py         # Shared Customer + Engagement Type sidebar selector
-│   └── pages/
-│       ├── 1_Risk_Dashboard.py
-│       ├── 2_Release_Predictor.py
-│       ├── 3_Monthly_Digest.py
-│       ├── 4_Risk_Map.py
-│       ├── 5_Data_Upload.py
-│       └── 6_Industry_Benchmark.py
-├── config.py           # Shared paths, feature definitions, engagement-type rules
+│   ├── Home.py           # Streamlit entry point
+│   ├── utils.py          # Shared Customer + Engagement Type sidebar selector
+│   └── pages/             # The six views listed above
+├── config.py            # Shared paths, feature definitions, engagement-type rules
 └── requirements.txt
 ```
-
-## Refreshing the model
-
-Retrain monthly (or whenever new data is available), either from the **Data Upload** page in the app, or from the command line:
-
-```bash
-python model/train.py
-```
-
-Artifacts are saved to `model/artifacts/`. The Streamlit app picks up new artifacts automatically after retraining from Data Upload (via a cache reset); if you retrain from the command line while the app is already running, restart it to pick up the new model.
-
-## Adding new data sources
-
-To connect Jira, TestRail, ADO, or other bug tracking systems, add an importer in `data/` that outputs Excel files matching the existing schema (see `EXPECTED_DATA_FILES` in `config.py`), then rerun `model/train.py` — or upload the refreshed files directly from the **Data Upload** page.
