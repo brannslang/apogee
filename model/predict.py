@@ -15,7 +15,6 @@ _text_pipeline  = None
 _text_profiles  = None
 _nmf_model      = None
 _graph_artifacts = None
-_sentence_model = None
 
 
 def _safe_load(path):
@@ -24,7 +23,7 @@ def _safe_load(path):
 
 def _load():
     global _model, _risk_tables, _feature_info
-    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts, _sentence_model
+    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts
 
     if _model is not None:
         return
@@ -38,10 +37,9 @@ def _load():
     _model        = joblib.load(classifier_path)
     # Force serial prediction. The trained classifier has n_jobs=-1 baked in from
     # training, which makes every predict_proba() call fork worker processes via
-    # joblib. On macOS, forking after any networked library (e.g. the sentence
-    # transformer's Hugging Face Hub check) has touched Network.framework crashes
-    # with SIGSEGV inside Apple's fork handlers. Predicting a single row gains
-    # nothing from parallelism anyway, so disable it here rather than retraining.
+    # joblib — risky on macOS if a networked library has touched Network.framework
+    # beforehand. Predicting a single row gains nothing from parallelism anyway,
+    # so disable it here rather than retraining.
     classifier_step = getattr(_model, "named_steps", {}).get("classifier")
     if classifier_step is not None and hasattr(classifier_step, "n_jobs"):
         classifier_step.n_jobs = 1
@@ -53,13 +51,6 @@ def _load():
     _nmf_model      = _safe_load(os.path.join(ARTIFACTS_DIR, "nmf_model.joblib"))
     _graph_artifacts = _safe_load(os.path.join(ARTIFACTS_DIR, "graph_artifacts.joblib"))
 
-    if _text_pipeline is not None and _text_pipeline.get("sentence_model_name"):
-        try:
-            from sentence_transformers import SentenceTransformer
-            _sentence_model = SentenceTransformer(_text_pipeline["sentence_model_name"])
-        except ImportError:
-            pass  # not installed in cloud env; precomputed text profiles handle inference
-
 
 def artifacts_exist() -> bool:
     return os.path.exists(os.path.join(ARTIFACTS_DIR, "classifier.joblib"))
@@ -70,7 +61,7 @@ def reset_cache() -> None:
     this after retraining so a running Streamlit process picks up the new
     model/risk tables/customer roster without needing a restart."""
     global _model, _risk_tables, _feature_info
-    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts, _sentence_model
+    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts
     _model = None
     _risk_tables = None
     _feature_info = None
@@ -78,7 +69,6 @@ def reset_cache() -> None:
     _text_profiles = None
     _nmf_model = None
     _graph_artifacts = None
-    _sentence_model = None
 
 
 def get_risk_tables() -> dict:
