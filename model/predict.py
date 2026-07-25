@@ -1,0 +1,397 @@
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import joblib
+import numpy as np
+import pandas as pd
+
+from config import ARTIFACTS_DIR, N_SVD_COMPONENTS, N_EMB_COMPONENTS, N_NMF_FACTORS
+
+_model          = None
+_risk_tables    = None
+_feature_info   = None
+_text_pipeline  = None
+_text_profiles  = None
+_nmf_model      = None
+_graph_artifacts = None
+_sentence_model = None
+
+
+def _safe_load(path):
+    return joblib.load(path) if os.path.exists(path) else None
+
+
+def _load():
+    global _model, _risk_tables, _feature_info
+    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts, _sentence_model
+
+    if _model is not None:
+        return
+
+    classifier_path = os.path.join(ARTIFACTS_DIR, "classifier.joblib")
+    if not os.path.exists(classifier_path):
+        raise FileNotFoundError(
+            "Model artifacts not found. Run 'python model/train.py' first."
+        )
+
+    _model        = joblib.load(classifier_path)
+    # Force serial prediction. The trained classifier has n_jobs=-1 baked in from
+    # training, which makes every predict_proba() call fork worker processes via
+    # joblib. On macOS, forking after any networked library (e.g. the sentence
+    # transformer's Hugging Face Hub check) has touched Network.framework crashes
+    # with SIGSEGV inside Apple's fork handlers. Predicting a single row gains
+    # nothing from parallelism anyway, so disable it here rather than retraining.
+    classifier_step = getattr(_model, "named_steps", {}).get("classifier")
+    if classifier_step is not None and hasattr(classifier_step, "n_jobs"):
+        classifier_step.n_jobs = 1
+    _risk_tables  = joblib.load(os.path.join(ARTIFACTS_DIR, "risk_tables.joblib"))
+    _feature_info = joblib.load(os.path.join(ARTIFACTS_DIR, "feature_info.joblib"))
+
+    _text_pipeline  = _safe_load(os.path.join(ARTIFACTS_DIR, "text_pipeline.joblib"))
+    _text_profiles  = _safe_load(os.path.join(ARTIFACTS_DIR, "text_profiles.joblib"))
+    _nmf_model      = _safe_load(os.path.join(ARTIFACTS_DIR, "nmf_model.joblib"))
+    _graph_artifacts = _safe_load(os.path.join(ARTIFACTS_DIR, "graph_artifacts.joblib"))
+
+    if _text_pipeline is not None and _text_pipeline.get("sentence_model_name"):
+        try:
+            from sentence_transformers import SentenceTransformer
+            _sentence_model = SentenceTransformer(_text_pipeline["sentence_model_name"])
+        except ImportError:
+            pass  # not installed in cloud env; precomputed text profiles handle inference
+
+
+def artifacts_exist() -> bool:
+    return os.path.exists(os.path.join(ARTIFACTS_DIR, "classifier.joblib"))
+
+
+def reset_cache() -> None:
+    """Drop in-memory artifacts so the next call re-reads from disk. Call
+    this after retraining so a running Streamlit process picks up the new
+    model/risk tables/customer roster without needing a restart."""
+    global _model, _risk_tables, _feature_info
+    global _text_pipeline, _text_profiles, _nmf_model, _graph_artifacts, _sentence_model
+    _model = None
+    _risk_tables = None
+    _feature_info = None
+    _text_pipeline = None
+    _text_profiles = None
+    _nmf_model = None
+    _graph_artifacts = None
+    _sentence_model = None
+
+
+def get_risk_tables() -> dict:
+    _load()
+    return _risk_tables
+
+
+def get_feature_info() -> dict:
+    _load()
+    return _feature_info
+
+
+def _apply_text_features_from_profile(row: dict, inputs: dict) -> None:
+    """
+    Impute text features from the historical per-entity text profile rather than
+    requiring raw bug text. Resolution order: component → platform → global mean.
+    """
+    comp     = inputs.get("App Component")
+    platform = inputs.get("Platform Product Name")
+
+    all_text_cols = _text_profiles["all_text_cols"]
+
+    comp_profile = _text_profiles["by_component"].get(comp, {}).get("all", {}) if comp else {}
+    plat_profile = _text_profiles["by_platform"].get(platform, {}).get("all", {}) if platform else {}
+    global_profile = _text_profiles["global"]["all"]
+
+    for col in all_text_cols:
+        row[col] = (
+            comp_profile.get(col)
+            if comp_profile.get(col) is not None
+            else plat_profile.get(col)
+            if plat_profile.get(col) is not None
+            else global_profile.get(col, 0.0)
+        )
+
+
+def _apply_nmf_features(row: dict, inputs: dict) -> None:
+    """Compute and insert NMF factor values into row in-place."""
+    feature_names = _nmf_model["feature_names"]
+    entity_vec = pd.DataFrame(0.0, index=[0], columns=feature_names)
+    for col in _nmf_model["entity_cols"]:
+        val = inputs.get(col)
+        if val:
+            col_name = f"{col}_{val}"
+            if col_name in entity_vec.columns:
+                entity_vec[col_name] = 1.0
+    nmf_vec = _nmf_model["nmf"].transform(entity_vec)[0]
+    for i in range(N_NMF_FACTORS):
+        row[f"nmf_factor_{i}"] = float(nmf_vec[i]) if i < len(nmf_vec) else 0.0
+
+
+def _apply_graph_features(row: dict, inputs: dict) -> None:
+    """Look up and insert graph metric values into row in-place."""
+    node_metrics = _graph_artifacts["node_metrics"]
+
+    def lookup(col, val, metric):
+        if not val:
+            return 0.0
+        return node_metrics.get(f"{col}:{val}", {}).get(metric, 0.0)
+
+    comp     = inputs.get("App Component")
+    platform = inputs.get("Platform Product Name")
+    customer = inputs.get("Customer")
+
+    row["graph_comp_pagerank"]     = lookup("App Component", comp, "pagerank")
+    row["graph_comp_degree"]       = lookup("App Component", comp, "degree_centrality")
+    row["graph_comp_clustering"]   = lookup("App Component", comp, "clustering")
+    row["graph_platform_pagerank"] = lookup("Platform Product Name", platform, "pagerank")
+    row["graph_customer_pagerank"] = lookup("Customer", customer, "pagerank")
+
+
+def get_feature_importances() -> pd.DataFrame:
+    """
+    Return a DataFrame of feature name + importance from the trained RandomForest,
+    with a 'group' column for aggregated display.
+    """
+    _load()
+    features    = _feature_info["features"]
+    importances = _model.named_steps["classifier"].feature_importances_
+
+    df = pd.DataFrame({"feature": features, "importance": importances})
+
+    def _group(f):
+        if f.startswith("text_svd_"):   return "Text: TF-IDF Topics"
+        if f.startswith("text_emb_"):   return "Text: Semantic Embeddings"
+        if f.startswith("text_flag_"):  return "Text: Keyword Flags"
+        if f.startswith("nmf_factor_"): return "NMF: Latent Risk Archetypes"
+        if f.startswith("graph_"):      return "Graph: Network Metrics"
+        return "Core Features"
+
+    df["group"] = df["feature"].apply(_group)
+    return df.sort_values("importance", ascending=False).reset_index(drop=True)
+
+
+def get_graph_network_data() -> pd.DataFrame:
+    """
+    Return graph node metrics as a DataFrame for scatter/bubble visualization.
+    Columns: entity_type, entity_name, pagerank, degree_centrality, clustering.
+    """
+    _load()
+    if _graph_artifacts is None:
+        return pd.DataFrame()
+
+    rows = []
+    for node_key, metrics in _graph_artifacts["node_metrics"].items():
+        entity_type, entity_name = node_key.split(":", 1)
+        rows.append({
+            "entity_type":       entity_type,
+            "entity_name":       entity_name,
+            "pagerank":          metrics["pagerank"],
+            "degree_centrality": metrics["degree_centrality"],
+            "clustering":        metrics["clustering"],
+        })
+    return (
+        pd.DataFrame(rows)
+        .sort_values("pagerank", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def get_text_risk_signals(component: str = None, platform: str = None) -> list:
+    """
+    Return keyword flag elevations for the given component vs. the global H/C baseline.
+
+    Each item: {col, label, elevation, component_hc_rate, global_hc_rate}
+    Sorted descending by elevation. Only returned when the component has enough
+    H/C bugs for a stable estimate (MIN_BUGS_FOR_TABLE enforced at training time).
+    Returns [] when no profile is available or artifacts are old-format.
+    """
+    _load()
+    if _text_profiles is None:
+        return []
+
+    flag_cols  = _text_profiles["flag_cols"]
+    global_hc  = _text_profiles["global"]["hc"]
+    comp_data  = _text_profiles["by_component"].get(component, {}) if component else {}
+    comp_hc    = comp_data.get("hc", {})
+
+    if not comp_hc:
+        return []
+
+    signals = []
+    for col in flag_cols:
+        comp_rate   = comp_hc.get(col, 0.0)
+        global_rate = global_hc.get(col, 0.0)
+        signals.append({
+            "col":               col,
+            "elevation":         comp_rate - global_rate,
+            "component_hc_rate": comp_rate,
+            "global_hc_rate":    global_rate,
+        })
+
+    return sorted(signals, key=lambda x: x["elevation"], reverse=True)
+
+
+def get_monthly_flag_trends(customer: str, engagement_type: str = "Functional") -> pd.DataFrame:
+    """Return the monthly keyword-flag trend table scoped to a single customer
+    and engagement type. Empty DataFrame if unavailable — old-format artifacts
+    predating this field, or no date column to bucket by month."""
+    _load()
+    if _text_profiles is None:
+        return pd.DataFrame()
+    by_customer = _text_profiles.get("monthly_flag_trends_by_customer", {})
+    trend = by_customer.get(customer, {}).get(engagement_type)
+    return trend if trend is not None else pd.DataFrame()
+
+
+def get_customers() -> list:
+    """Return sorted list of customers present in training data."""
+    _load()
+    return _risk_tables.get("customers", [])
+
+
+def get_customer_risk_tables(customer: str, engagement_type: str = "Functional") -> dict:
+    """Return risk tables scoped to a single customer and engagement type
+    (Functional or Accessibility)."""
+    _load()
+    return _risk_tables.get("by_customer", {}).get(customer, {}).get(engagement_type, {})
+
+
+def get_customer_categories(customer: str, engagement_type: str = "Functional") -> dict:
+    """Return dropdown option lists (per categorical column) scoped to a single
+    customer and engagement type, so filter dropdowns can be narrowed to just
+    that customer's values. Empty dict if unavailable — either old-format
+    artifacts predating this field, or too few bugs for that customer/engagement
+    type to clear MIN_BUGS_FOR_TABLE. Callers should fall back to the global,
+    unscoped categories in that case."""
+    _load()
+    return _risk_tables.get("categories_by_customer", {}).get(customer, {}).get(engagement_type, {})
+
+
+def get_industries() -> list:
+    """Return sorted list of industries present in training data."""
+    _load()
+    return _risk_tables.get("industries", [])
+
+
+def get_industry_risk_tables(industry: str, engagement_type: str = "Functional") -> dict:
+    """Return risk tables scoped to a single industry and engagement type,
+    computed over the full multi-customer dataset (Industry Benchmark tab)."""
+    _load()
+    return _risk_tables.get("by_industry", {}).get(industry, {}).get(engagement_type, {})
+
+
+def get_industry_categories(industry: str, engagement_type: str = "Functional") -> dict:
+    """Return dropdown option lists scoped to a single industry and engagement
+    type. Empty dict if unavailable (too few bugs to clear MIN_BUGS_FOR_TABLE)."""
+    _load()
+    return _risk_tables.get("categories_by_industry", {}).get(industry, {}).get(engagement_type, {})
+
+
+def get_industry_rank_trend(engagement_type: str = "Functional") -> list:
+    """Return, for every industry with data at this engagement type, its
+    current rank by H/C baseline (rank_now, 1 = highest/riskiest), its rank
+    as of 6 months ago (rank_6mo_ago, None if not enough trailing data), and
+    its monthly trend slope/direction. Powers the Industry Benchmark trend
+    leaderboard's rank badges."""
+    _load()
+    return _risk_tables.get("industry_rank_trend", {}).get(engagement_type, [])
+
+
+def get_industry_monthly_series(engagement_type: str = "Functional") -> pd.DataFrame:
+    """Return a combined DataFrame (Industry, month, hc_rate, n_bugs) across
+    every industry at this engagement type. Callers compute peer percentile
+    bands from this at render time (excluding whichever industry is
+    currently selected), rather than baking exclusions into the artifact."""
+    _load()
+    return _risk_tables.get("industry_monthly_series", {}).get(engagement_type, pd.DataFrame())
+
+
+def get_customer_roster_by_industry(industry: str) -> list:
+    """Return the info-only client roster for an industry: one dict per
+    customer with bug_volume (primary rank) and test_cycles (secondary),
+    already sorted by bug_volume descending."""
+    _load()
+    return _risk_tables.get("customer_roster_by_industry", {}).get(industry, [])
+
+
+def get_bubble_data() -> pd.DataFrame:
+    """Return precomputed bubble chart DataFrame, or empty if not yet generated."""
+    path = os.path.join(ARTIFACTS_DIR, "bubble_data.joblib")
+    if not os.path.exists(path):
+        return pd.DataFrame()
+    return joblib.load(path)
+
+
+def predict_release_risk(inputs: dict) -> dict:
+    """
+    inputs: dict mapping feature names to values.
+    Returns dict with risk_score, baseline, risk_delta, risk_label, component_breakdown.
+    """
+    _load()
+
+    is_multimodal = _feature_info.get("has_multimodal", False)
+    features      = _feature_info["features"]
+    customer      = inputs.get("Customer")
+
+    row = {f: inputs.get(f) for f in features}
+
+    # The Release Predictor UI doesn't collect Industry directly. Backfill it
+    # from the customer's historical Industry (added as a classifier feature
+    # for cross-industry benchmarking) so a known customer doesn't silently
+    # degrade to "Unknown" here.
+    if "Industry" in features and not row.get("Industry") and customer:
+        known_industry = _risk_tables.get("customer_industry", {}).get(customer)
+        if known_industry:
+            row["Industry"] = known_industry
+
+    if is_multimodal:
+        if _text_profiles is not None:
+            _apply_text_features_from_profile(row, inputs)
+        if _nmf_model is not None:
+            _apply_nmf_features(row, inputs)
+        if _graph_artifacts is not None:
+            _apply_graph_features(row, inputs)
+
+    X = pd.DataFrame([{f: row.get(f) for f in features}])
+
+    engagement_type = inputs.get("Engagement Type") or "Functional"
+    type_tables     = _risk_tables.get("by_type", {}).get(engagement_type, _risk_tables)
+    customer_tables = (
+        _risk_tables.get("by_customer", {}).get(customer, {}).get(engagement_type, {})
+        if customer else {}
+    )
+    # Prefer the customer's own baseline/component breakdown; fall back to the
+    # engagement-type-wide table when this customer/engagement type doesn't
+    # clear MIN_BUGS_FOR_TABLE for a stable estimate.
+    scoped_tables = customer_tables or type_tables
+
+    prob     = float(_model.predict_proba(X)[0][1])
+    baseline = scoped_tables.get("baseline", _risk_tables["baseline"])
+    delta    = prob - baseline
+
+    if prob >= 0.60:
+        label, color = "High Risk", "#d62728"
+    elif prob >= 0.40:
+        label, color = "Elevated Risk", "#ff7f0e"
+    else:
+        label, color = "Normal Risk", "#2ca02c"
+
+    component_tbl      = scoped_tables.get("App Component", pd.DataFrame())
+    selected_component = inputs.get("App Component")
+    selected_parent    = inputs.get("Parent App Component")
+    selected_platform  = inputs.get("Platform Product Name")
+
+    return {
+        "risk_score":          prob,
+        "baseline":            baseline,
+        "risk_delta":          delta,
+        "risk_label":          label,
+        "risk_color":          color,
+        "component_breakdown": component_tbl,
+        "selected_component":  selected_component,
+        "selected_parent":     selected_parent,
+        "selected_platform":   selected_platform,
+    }

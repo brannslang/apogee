@@ -1,0 +1,77 @@
+# Apogee — Release Risk Intelligence
+
+Predictive ML tool that helps engineering teams assess bug risk before pushing a release candidate or site to production. Trained on the full multi-customer bug history, scoped per customer and per engagement type (Functional / Accessibility / Security), with a dedicated cross-customer industry benchmarking view.
+
+## What it does
+
+| View | Description |
+|------|-------------|
+| **Risk Dashboard** | Ranked H/C rate by component, platform, environment, and testing approach for the selected customer + engagement type. Also surfaces model-wide feature importances and a Risk Network graph of structurally connected high-risk entities. |
+| **Release Predictor** | Form-driven prediction: describe an upcoming release, get an H/C bug probability scored against the customer's own baseline, a component-risk breakdown, and language-based risk signals pulled from historical bug text. |
+| **Monthly Digest** | Month-over-month H/C rate trend, bug-language keyword trends over time, and all-time top risk areas — scoped to the selected customer + engagement type. |
+| **Risk Map** | QA Predictive Radar — a device-level bubble chart clustering (Customer, Device, Engagement Type) combinations into Critical Hotspot / Nuisance Zone / Stable Yielder based on historical failure rate and bug severity. |
+| **Data Upload** | Upload refreshed or new client Excel exports and retrain in one step, no command line needed. Files are matched by name; upload all 8 or just the ones that changed. |
+| **Industry Benchmark** | Cross-customer comparison by industry, computed over the full dataset instead of one customer. Breaks down by dimensions that are actually comparable across customers (Bug Type, CAPDB Sub-Industry, Platform Group, Bug Source Type) rather than customer-specific component names. Adds quality/process metrics beyond H/C rate (fix-verification closure rate, rejection rate, works-as-designed share, coverage gap score), a peer-percentile trend band, and a trend-slope leaderboard of degrading/improving industries with confidence-weighted sparklines and rank-change badges. Includes an info-only client roster per industry, ranked by bug volume. |
+
+## Then vs. now
+
+The app launched two months ago as a single-customer risk classifier with three views (Risk Dashboard, Release Predictor, Monthly Digest) and a plain categorical/numeric RandomForest. Since then:
+
+- **Multi-customer, multi-engagement-type architecture.** Every view is now scoped to a selected Customer and Engagement Type (Functional / Accessibility / Security are run by different teams and tracked separately); Usability engagements are excluded entirely since they produce interviews/surveys, not bugs.
+- **Multi-modal model.** The classifier now trains on three additional feature streams beyond the original categorical/numeric fields: bug-text signal (keyword flags, TF-IDF/SVD topics, and optional sentence-transformer embeddings), NMF latent risk archetypes from entity co-occurrence, and property-graph network metrics (PageRank, degree centrality, clustering) over components/platforms/customers.
+- **Two new views.** Risk Map (device-level failure/severity clustering) and Data Upload (in-app retraining, no CLI needed) didn't exist at launch.
+- **Industry Benchmark.** An entirely new cross-customer lens — the original app could only ever look at one customer at a time. It now benchmarks whole industries against each other on dimensions and metrics that don't make sense at the single-customer level.
+- **Bigger, broader dataset.** The training data has grown from the initial client set to a large multi-client export spanning many industries, with several customer data drops appended and retrained along the way (e.g. a major media & entertainment client).
+- **Smarter filtering.** Release Predictor's dropdown options and baselines are now scoped to the selected customer + engagement type instead of offering every value from every customer; the classifier silently backfills a customer's known Industry as a feature without requiring a new form field.
+
+## Setup
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Train the model (run once, then monthly to refresh)
+python model/train.py
+
+# 3. Launch the app
+streamlit run app/Home.py
+```
+
+`sentence-transformers` is optional and not in `requirements.txt` (it's heavy and unnecessary for Streamlit Cloud deployment) — if it's installed locally, `train.py` uses it for semantic text embeddings; if not, it skips that layer and falls back to keyword flags + TF-IDF/SVD only.
+
+## Project structure
+
+```
+apogee/
+├── data/               # Excel training data (bug details, test cycles, device runs, test cases, entitlements)
+├── model/
+│   ├── train.py        # Training pipeline — multi-modal feature build + classifier + risk tables
+│   ├── predict.py      # Inference module used by the app
+│   └── artifacts/      # Saved model files (generated by train.py)
+├── app/
+│   ├── Home.py         # Streamlit entry point
+│   ├── utils.py         # Shared Customer + Engagement Type sidebar selector
+│   └── pages/
+│       ├── 1_Risk_Dashboard.py
+│       ├── 2_Release_Predictor.py
+│       ├── 3_Monthly_Digest.py
+│       ├── 4_Risk_Map.py
+│       ├── 5_Data_Upload.py
+│       └── 6_Industry_Benchmark.py
+├── config.py           # Shared paths, feature definitions, engagement-type rules
+└── requirements.txt
+```
+
+## Refreshing the model
+
+Retrain monthly (or whenever new data is available), either from the **Data Upload** page in the app, or from the command line:
+
+```bash
+python model/train.py
+```
+
+Artifacts are saved to `model/artifacts/`. The Streamlit app picks up new artifacts automatically after retraining from Data Upload (via a cache reset); if you retrain from the command line while the app is already running, restart it to pick up the new model.
+
+## Adding new data sources
+
+To connect Jira, TestRail, ADO, or other bug tracking systems, add an importer in `data/` that outputs Excel files matching the existing schema (see `EXPECTED_DATA_FILES` in `config.py`), then rerun `model/train.py` — or upload the refreshed files directly from the **Data Upload** page.
