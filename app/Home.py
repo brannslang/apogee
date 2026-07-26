@@ -86,7 +86,8 @@ st.divider()
 
 st.subheader("Data Upload")
 st.markdown(
-    "Upload refreshed or new client Excel files and retrain the model — no command line needed."
+    "Self-serve CSV upload is coming soon. Contact the Apogee team to load new or "
+    "refreshed client data in the meantime."
 )
 if st.button("Open Data Upload →", use_container_width=True):
     st.switch_page("pages/6_Data_Upload.py")
