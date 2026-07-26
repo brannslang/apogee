@@ -260,6 +260,18 @@ def get_customer_categories(customer: str, engagement_type: str = "Functional") 
     return _risk_tables.get("categories_by_customer", {}).get(customer, {}).get(engagement_type, {})
 
 
+def get_customer_engagement_types(customer: str) -> list:
+    """Return the Engagement Types (subset of Functional/Accessibility/Security)
+    that have enough bugs for this customer to clear MIN_BUGS_FOR_TABLE and get
+    a scoped risk table / dropdown list. Many customers are only ever engaged
+    for one type (e.g. Accessibility-only or Security-only) and have zero bugs
+    under the others — callers use this to avoid defaulting to an engagement
+    type with no data for the selected customer, which would otherwise silently
+    fall back to the global, unscoped category lists for every field."""
+    _load()
+    return list(_risk_tables.get("by_customer", {}).get(customer, {}).keys())
+
+
 def get_industries() -> list:
     """Return sorted list of industries present in training data."""
     _load()
