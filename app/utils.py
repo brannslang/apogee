@@ -81,13 +81,13 @@ def require_customer() -> tuple:
             if available_types:
                 st.caption(
                     f"⚠️ {selection} has no {engagement_type} bug history "
-                    f"(data available for: {', '.join(available_types)}). Dropdowns "
-                    "below will show unscoped, all-customer options."
+                    f"(data available for: {', '.join(available_types)}). Release "
+                    "Details fields have no options to offer for this combination."
                 )
             else:
                 st.caption(
                     f"⚠️ Not enough {selection} bug history to narrow dropdowns to "
-                    "this customer. Showing unscoped, all-customer options."
+                    "this customer. Release Details fields have no options to offer."
                 )
 
         st.divider()

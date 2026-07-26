@@ -9,7 +9,6 @@ import pandas as pd
 
 from model.predict import (
     get_customer_categories,
-    get_feature_info,
     get_text_risk_signals,
     predict_release_risk,
 )
@@ -24,8 +23,6 @@ st.caption(
 )
 
 customer, engagement_type = require_customer()
-feature_info = get_feature_info()
-categories   = feature_info["categories"]
 customer_categories = get_customer_categories(customer, engagement_type)
 
 FLAG_LABELS = {
@@ -40,11 +37,14 @@ FLAG_LABELS = {
 
 
 def cat_options(col: str) -> list:
-    # Narrow options to the selected customer + engagement type where available,
-    # falling back to the global list (old-format artifacts, or too few bugs for
-    # this customer/engagement type to have a scoped list).
+    # Narrow options to the selected customer + engagement type. If this
+    # customer/engagement type combination has no scoped bug history (too few
+    # bugs, or a team this customer never engaged), there's nothing meaningful
+    # to offer — leave the field at "(not specified)" only rather than dumping
+    # every other customer's values (hundreds-to-thousands of options) into
+    # the dropdown. The sidebar already surfaces a warning when this happens.
     scoped = customer_categories.get(col)
-    return ["(not specified)"] + (scoped if scoped else categories.get(col, []))
+    return ["(not specified)"] + (scoped if scoped else [])
 
 
 st.subheader("Release Details")
