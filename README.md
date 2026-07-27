@@ -1,6 +1,6 @@
 # Apogee — Release Risk Intelligence
 
-Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 300+ organizations across over 80 industries.
+Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 300+ organizations across over 80 industries. The shipped app itself serves a curated 30-organization demo roster by default, selected for bug volume and diversity, so first-time visitors see the tool's simplicity rather than being overwhelmed by the full dataset; the complete 300+-organization dataset remains available for full-scale training (see Datasets below).
 
 ## Architecture
 
@@ -64,23 +64,37 @@ streamlit run app/Home.py   # http://localhost:8501 — uses the shipped model/a
 
 If a clone ever comes back with data files a few hundred bytes each instead of tens/hundreds of MB, Git LFS wasn't installed before the clone — run `git lfs install && git lfs pull` from inside the repo to fetch the real content.
 
+### Datasets
+
+Two datasets live side by side under `data/`:
+
+- **`data/demo-data/`** — a curated top-30-customer subset (by combined bug-volume + bug-diversity score, see `model/build_demo_data.py`), used by the shipped app and its committed `model/artifacts/demo-data/`. This is what `make run` and any direct `streamlit run` launch (e.g. Streamlit Cloud) serve by default — `APOGEE_DATASET` defaults to `demo-data` in `config.py`.
+- **`data/full-data/`** — the complete, untrimmed dataset (300+ organizations), used for full-scale training/research. Its artifacts are not committed (`model/artifacts/full-data/` is gitignored) since nothing at runtime reads them.
+
 To retrain instead of using the shipped artifacts — e.g. against your own data, or to pick up `sentence-transformers` embeddings if you have that package installed locally (optional, left out of `requirements.txt` since it's heavy and unnecessary for Streamlit Cloud deployment; if present, `train.py` picks it up automatically for a heavier text-embedding layer, otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on):
 
 ```bash
-python model/train.py       # retrains on data/, overwrites model/artifacts/ (can take 30-45+ minutes at full scale)
+make train          # trains on data/full-data/, writes model/artifacts/full-data/ (not committed; can take 30-45+ minutes at full scale)
+make build-demo-data # re-derives data/demo-data/ from data/full-data/ (top 30 customers)
+make train-demo      # trains on data/demo-data/, overwrites model/artifacts/demo-data/ — commit this to refresh what the live app serves
 ```
 
-Replace the files in `data/` with same-schema exports first (see `EXPECTED_DATA_FILES` in `config.py`) if retraining against different data, or upload them from the in-app **Data Upload** page — uploading a subset is fine, only the matching files get replaced.
+Replace the files in `data/full-data/` with same-schema exports first (see `EXPECTED_DATA_FILES` in `config.py`) if retraining against different data, or upload them from the in-app **Data Upload** page — uploading a subset is fine, only the matching files get replaced.
 
 ## Project structure
 
 ```
 apogee/
-├── data/               # Training data (bug details, test cycles, device runs, test cases, entitlements)
+├── data/
+│   ├── full-data/        # Complete, untrimmed dataset (300+ customers) — training/research
+│   └── demo-data/        # Curated top-30-customer subset — powers the shipped app (model/build_demo_data.py)
 ├── model/
-│   ├── train.py         # Training pipeline — multi-modal feature build + classifier + risk tables
-│   ├── predict.py        # Inference module used by the app
-│   └── artifacts/        # Saved model files (generated by train.py)
+│   ├── train.py            # Training pipeline — multi-modal feature build + classifier + risk tables
+│   ├── build_demo_data.py  # Selects top-30 customers from full-data, writes demo-data
+│   ├── predict.py           # Inference module used by the app
+│   └── artifacts/
+│       ├── demo-data/       # Committed — what the shipped app serves
+│       └── full-data/       # Gitignored local research output (generated by `make train`)
 ├── app/
 │   ├── Home.py           # Streamlit entry point
 │   ├── utils.py          # Shared Customer + Engagement Type sidebar selector

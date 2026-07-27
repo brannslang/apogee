@@ -1,8 +1,27 @@
 import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(ROOT, "data")
-ARTIFACTS_DIR = os.path.join(ROOT, "model", "artifacts")
+
+# Two datasets live side by side: "full-data" is the complete, untrimmed
+# dataset (used for full-scale training/research) and "demo-data" is a
+# curated top-30-customer subset (see model/build_demo_data.py) used by the
+# shipped app. DEFAULT_DATASET is "demo-data" so that anything launching the
+# app directly — e.g. Streamlit Cloud, which never invokes the Makefile —
+# shows the curated roster rather than silently serving the full 300+
+# organizations. Training explicitly opts into "full-data" via `make train`.
+DATASET_ENV_VAR = "APOGEE_DATASET"
+VALID_DATASETS = ("full-data", "demo-data")
+DEFAULT_DATASET = "demo-data"
+
+ACTIVE_DATASET = os.environ.get(DATASET_ENV_VAR, DEFAULT_DATASET)
+if ACTIVE_DATASET not in VALID_DATASETS:
+    raise ValueError(f"{DATASET_ENV_VAR}={ACTIVE_DATASET!r} is not one of {VALID_DATASETS}")
+
+FULL_DATA_DIR = os.path.join(ROOT, "data", "full-data")
+DEMO_DATA_DIR = os.path.join(ROOT, "data", "demo-data")
+
+DATA_DIR = os.path.join(ROOT, "data", ACTIVE_DATASET)
+ARTIFACTS_DIR = os.path.join(ROOT, "model", "artifacts", ACTIVE_DATASET)
 
 CATEGORICAL_FEATURES = [
     "App Component",
@@ -23,6 +42,15 @@ NUMERIC_FEATURES = [
 
 TARGET = "is_high_crit"
 MIN_BUGS_FOR_TABLE = 10
+
+# --- Demo dataset selection (model/build_demo_data.py) ---
+# Top-N customers, ranked by a combined bug-volume + bug-diversity score, are
+# carried from full-data into demo-data. Weights and basis are plain config
+# constants so the selection can be retuned without touching code.
+TOP_N_DEMO_CUSTOMERS = 30
+DEMO_VOLUME_WEIGHT = 0.5
+DEMO_DIVERSITY_WEIGHT = 0.5
+DEMO_DIVERSITY_BASIS = CATEGORICAL_FEATURES + ["Bug Severity", "Bug Type"]
 
 # Test Cycle Testing Type values (from testcycles.xlsx) that should be dropped
 # entirely from training/analysis. Usability/UX engagements deliver interviews,
