@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 # dataset (used for full-scale training/research) and "demo-data" is a
 # curated top-30-customer subset (see model/build_demo_data.py) used by the
 # shipped app. DEFAULT_DATASET is "demo-data" so that anything launching the
-# app directly — e.g. Streamlit Cloud, which never invokes the Makefile —
+# app directly — e.g. the Hugging Face Space, which never invokes the Makefile —
 # shows the curated roster rather than silently serving the full 300+
 # organizations. Training explicitly opts into "full-data" via `make train`.
 DATASET_ENV_VAR = "APOGEE_DATASET"

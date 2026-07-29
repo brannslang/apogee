@@ -1,6 +1,17 @@
+---
+title: Apogee — Release Risk Intelligence
+emoji: 🔍
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+app_file: app/Home.py
+python_version: "3.11"
+pinned: false
+---
+
 # Apogee — Release Risk Intelligence
 
-[![Open in Streamlit Cloud](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=brannslang/apogee&branch=main&mainModule=app/Home.py)
+[![Open in Hugging Face Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/brannslang/apogee)
 
 Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 300+ organizations across over 80 industries. The shipped app itself serves a curated 30-organization demo roster by default, selected for bug volume and diversity, so first-time visitors see the tool's simplicity rather than being overwhelmed by the full dataset; the complete 300+-organization dataset remains available for full-scale training (see Datasets below).
 
@@ -70,10 +81,10 @@ If a clone ever comes back with data files a few hundred bytes each instead of t
 
 Two datasets live side by side under `data/`:
 
-- **`data/demo-data/`** — a curated top-30-customer subset (by combined bug-volume + bug-diversity score, see `model/build_demo_data.py`), used by the shipped app and its committed `model/artifacts/demo-data/`. This is what `make run` and any direct `streamlit run` launch (e.g. Streamlit Cloud) serve by default — `APOGEE_DATASET` defaults to `demo-data` in `config.py`.
+- **`data/demo-data/`** — a curated top-30-customer subset (by combined bug-volume + bug-diversity score, see `model/build_demo_data.py`), used by the shipped app and its committed `model/artifacts/demo-data/`. This is what `make run` and any direct `streamlit run` launch (e.g. the [Hugging Face Space](https://huggingface.co/spaces/brannslang/apogee)) serve by default — `APOGEE_DATASET` defaults to `demo-data` in `config.py`.
 - **`data/full-data/`** — the complete, untrimmed dataset (300+ organizations), used for full-scale training/research. Its artifacts are not committed (`model/artifacts/full-data/` is gitignored) since nothing at runtime reads them.
 
-To retrain instead of using the shipped artifacts — e.g. against your own data, or to pick up `sentence-transformers` embeddings if you have that package installed locally (optional, left out of `requirements.txt` since it's heavy and unnecessary for Streamlit Cloud deployment; if present, `train.py` picks it up automatically for a heavier text-embedding layer, otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on):
+To retrain instead of using the shipped artifacts — e.g. against your own data, or to pick up `sentence-transformers` embeddings if you have that package installed locally (optional, left out of `requirements.txt` since it's heavy and unnecessary for the shipped deployment; if present, `train.py` picks it up automatically for a heavier text-embedding layer, otherwise it falls back to keyword flags + TF-IDF/SVD only, which is what the shipped artifacts were trained on):
 
 ```bash
 make train          # trains on data/full-data/, writes model/artifacts/full-data/ (not committed; can take 30-45+ minutes at full scale)
