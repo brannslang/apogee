@@ -18,6 +18,8 @@ jobs:
         run: |
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
+          git reset --hard HEAD
+          git clean -fdx
           git lfs migrate import --include="docs/screenshots/*.png" --everything
 
       - name: Push to Hugging Face Space
