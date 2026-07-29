@@ -14,17 +14,23 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Rewrite non-LFS binaries for Hugging Face's LFS-only policy
+      - name: Build a deploy snapshot (drop full-data, apply LFS rules fresh)
         run: |
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
-          git reset --hard HEAD
-          git clean -fdx
-          git lfs migrate import --include="docs/screenshots/*.png" --everything
+          git lfs install
+          # full-data is only read by local `make train` retraining, never by
+          # the running app (config.py always serves demo-data) -- shipping it
+          # to the Space blew past HF's free 1GB repo storage limit.
+          rm -rf data/full-data
+          git checkout --orphan space-deploy
+          git rm -rf --cached . > /dev/null
+          git add -A
+          git commit --quiet -m "Deploy snapshot"
 
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git remote add space https://brannslang:${HF_TOKEN}@huggingface.co/spaces/brannslang/apogee
-          git push --force space HEAD:main
+          git push --force space space-deploy:main
