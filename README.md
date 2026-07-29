@@ -1,5 +1,7 @@
 # Apogee — Release Risk Intelligence
 
+[![Open in Streamlit Cloud](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=brannslang/apogee&branch=main&mainModule=app/Home.py)
+
 Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 300+ organizations across over 80 industries. The shipped app itself serves a curated 30-organization demo roster by default, selected for bug volume and diversity, so first-time visitors see the tool's simplicity rather than being overwhelmed by the full dataset; the complete 300+-organization dataset remains available for full-scale training (see Datasets below).
 
 ## Architecture
