@@ -30,7 +30,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 
 from config import (
-    ARTIFACTS_DIR, CATEGORICAL_FEATURES, DATA_DIR,
+    ACTIVE_DATASET, ARTIFACTS_DIR, CATEGORICAL_FEATURES, DATA_DIR,
     ENGAGEMENT_TYPE_OVERRIDES, ENGAGEMENT_TYPES, EXCLUDED_TESTING_TYPES,
     GRAPH_FEATURES, KEYWORD_GROUPS, MIN_BUGS_FOR_TABLE,
     N_EMB_COMPONENTS, N_NMF_FACTORS, N_SVD_COMPONENTS,
@@ -40,6 +40,7 @@ from config import (
 )
 from xlsx_io import read_excel_all_sheets
 
+print(f"Training against dataset: {ACTIVE_DATASET} ({DATA_DIR})")
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
 
 # "Platform Product Name" is free text combining app name + platform (e.g.

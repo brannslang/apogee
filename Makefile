@@ -1,10 +1,16 @@
-.PHONY: run train install
+.PHONY: run train train-demo build-demo-data install
 
 run:
-	python3 -m streamlit run app/Home.py
+	APOGEE_DATASET=demo-data python3 -m streamlit run app/Home.py
 
 train:
-	python3 model/train.py
+	APOGEE_DATASET=full-data python3 model/train.py
+
+train-demo:
+	APOGEE_DATASET=demo-data python3 model/train.py
+
+build-demo-data:
+	python3 model/build_demo_data.py
 
 install:
 	pip3 install -r requirements.txt

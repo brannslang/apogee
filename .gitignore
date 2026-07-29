@@ -3,3 +3,7 @@ __pycache__/
 *.pyo
 .DS_Store
 .streamlit/secrets.toml
+
+# Full-data training artifacts are a local research output — nothing at
+# runtime reads them (the app uses model/artifacts/demo-data/, LFS-tracked).
+model/artifacts/full-data/
