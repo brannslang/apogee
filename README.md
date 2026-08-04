@@ -9,9 +9,13 @@ python_version: "3.11"
 pinned: false
 ---
 
+<sub>↑ Hugging Face Spaces deploy config (GitHub renders it as a table). Not app content — it only tells the [live demo](https://huggingface.co/spaces/brannslang/apogee) how to launch.</sub>
+
 # Apogee — Release Risk Intelligence
 
 [![Open in Hugging Face Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/brannslang/apogee)
+
+> **Note:** The live demo runs on Hugging Face's free CPU tier, which sleeps after inactivity. If the Space has been idle, the first load can take ~30–60s to wake up — subsequent loads are fast.
 
 Software QA teams accumulate years of bug and test-cycle history but rarely use it predictively — severity gets assessed release by release, from instinct and a spreadsheet, with no memory of which components, devices, or platforms have actually been risky over time. Apogee turns that history into a forecast: given an upcoming release's component, platform, and testing context, it predicts the probability of a Critical/High-severity bug, ranks the specific risk factors driving that prediction, and — at the device level — flags which (customer, device, engagement-type) combinations are actually worth QA investment versus which are noise. It's engineered to match real-world enterprise quality benchmarks — severity distributions, component mixes, and failure patterns — spanning a simulated roster of 300+ organizations across over 80 industries. The shipped app itself serves a curated 30-organization demo roster by default, selected for bug volume and diversity, so first-time visitors see the tool's simplicity rather than being overwhelmed by the full dataset; the complete 300+-organization dataset remains available for full-scale training (see Datasets below).
 
